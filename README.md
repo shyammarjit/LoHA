@@ -2,21 +2,13 @@
 
 Conda env Create
 ```
-conda create -y -n lokr python=3.11
-conda activate lokr
+conda create -y -n loha python=3.11
+conda activate loha
 ```
 
 Install diffuser from Our Space
 ```
-git clone git@github.com:shyammarjit/LoKr.git
-cd LoKr 
-pip install -e ".[torch]"
-```
-
-Install diffuser from HuggingFace
-```
-git clone https://github.com/huggingface/diffusers.git
-cd diffusers 
+cd LoHA 
 pip install -e ".[torch]"
 ```
 
