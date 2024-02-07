@@ -200,9 +200,9 @@ if __name__ == "__main__":
     
     # find the availabel checkpoint list name
     run_generator = []
-    # if os.path.join(args.output_dir, 'checkpoint-500'): run_generator.append('checkpoint-500') 
-    # if os.path.join(args.output_dir, 'checkpoint-1000'): run_generator.append('checkpoint-1000')
-    run_generator.append('')
+    if os.path.join(args.output_dir, 'checkpoint-500'): run_generator.append('checkpoint-500') 
+    if os.path.join(args.output_dir, 'checkpoint-1000'): run_generator.append('checkpoint-1000')
+    # run_generator.append('')
     
     for from_checkpoint in run_generator:
         print(f"For {from_checkpoint}")
