@@ -5,11 +5,9 @@ export INSTANCE_DIR="/home/shyam/dataset_svdiff/${subjects}"
 
 
 # unet parameters
-factor=-1
 lora_rank=4
 lr=5e-4 
 steps=2
-decompose_both=False
 
 accelerate launch train_dreambooth_lora_sdxl.py \
     --pretrained_model_name_or_path=$MODEL_NAME \
