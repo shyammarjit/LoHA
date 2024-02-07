@@ -156,13 +156,9 @@ def save_metrics(args, clipi, clipt, from_checkpoint):
     else: what_config = os.path.basename(args.output_dir).split('_')[1]
     exp_info = {"Dataset_Name": os.path.basename(args.instance_data_dir), 
         "diffusion_version": args.diffusion_model,
-        "adaptor": args.adapter_type,
         "lr_scheduler": args.lr_scheduler,
         "seed": args.seed,
-        "attn_update_unet": args.attn_update_unet,
-        "attn_update_text": args.attn_update_text if args.train_text_encoder else None,
         "unet_tune_mlp": args.unet_tune_mlp,
-        "text_tune_mlp": args.text_tune_mlp,
         "clipi": clipi,
         "clipt": clipt,
         "num_train_steps": args.max_train_steps,
