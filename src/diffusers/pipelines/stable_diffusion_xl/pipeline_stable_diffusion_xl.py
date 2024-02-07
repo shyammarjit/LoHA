@@ -875,7 +875,7 @@ class StableDiffusionXLPipeline(DiffusionPipeline, FromSingleFileMixin, LoraLoad
         # print(factor)
         # shyammarjit
         
-        self.load_lora_into_unet(state_dict, network_alphas=network_alphas, unet=self.unet, factor=factor, decompose_both=decompose_both)
+        self.load_lora_into_unet(state_dict, network_alphas=network_alphas, unet=self.unet)
 
         text_encoder_state_dict = {k: v for k, v in state_dict.items() if "text_encoder." in k}
         if len(text_encoder_state_dict) > 0:

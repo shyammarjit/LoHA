@@ -92,21 +92,9 @@ def generator(args, prompts, from_checkpoint):
     if(args.diffusion_model == "sdxl"):
         # load the SDXL model
         model_id = "stabilityai/stable-diffusion-xl-base-1.0"
-        pipe = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16, 
-            # adapter_type = args.adapter_type,
-            # adapter_low_rank = args.adapter_low_rank,
-            # unet_tune_mlp=args.unet_tune_mlp
-        )
+        pipe = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
         pipe = pipe.to("cuda")
-        pipe.load_lora_weights(os.path.join(args.output_dir, from_checkpoint),
-            factor=args.factor,
-            decompose_both=args.decompose_both,            
-            # adapter_type=args.adapter_type, # Added
-            # attn_update_unet=args.attn_update_unet, # Added
-            # attn_update_text=args.attn_update_text, # Added
-            # # text_tune_mlp=args.text_tune_mlp, # No need for this one # Added
-            # train_text_encoder=args.train_text_encoder, # Added
-        )
+        pipe.load_lora_weights(os.path.join(args.output_dir, from_checkpoint))
         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
             "stabilityai/stable-diffusion-xl-refiner-1.0", torch_dtype=torch.float16, use_safetensors=True, variant="fp16",
             # adapter_type = args.adapter_type,

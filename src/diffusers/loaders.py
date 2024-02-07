@@ -231,7 +231,7 @@ class UNet2DConditionLoadersMixin:
     text_encoder_name = TEXT_ENCODER_NAME
     unet_name = UNET_NAME
 
-    def load_attn_procs(self, pretrained_model_name_or_path_or_dict: Union[str, Dict[str, torch.Tensor]], factor=-1,decompose_both=True, **kwargs):
+    def load_attn_procs(self, pretrained_model_name_or_path_or_dict: Union[str, Dict[str, torch.Tensor]], **kwargs):
         r"""
         Load pretrained attention processor layers into [`UNet2DConditionModel`]. Attention processor layers have to be
         defined in
@@ -289,7 +289,7 @@ class UNet2DConditionLoadersMixin:
             SlicedAttnAddedKVProcessor,
             XFormersAttnProcessor,
         )
-        from .models.lora import LoRACompatibleConv, LoRACompatibleLinear, LoRAConv2dLayer, LoRALinearLayer, LoKr
+        from .models.lora import LoRACompatibleConv, LoRACompatibleLinear, LoRAConv2dLayer, LoRALinearLayer, LoHA
         cache_dir = kwargs.pop("cache_dir", DIFFUSERS_CACHE)
         force_download = kwargs.pop("force_download", False)
         resume_download = kwargs.pop("resume_download", False)
@@ -450,32 +450,10 @@ class UNet2DConditionLoadersMixin:
                     lora.load_state_dict(value_dict)
                     non_attn_lora_layers.append((attn_processor, lora))
 
-                elif "lora_layer.lokr_w1_a.weight" in value_dict.keys() or "lora_layer.lokr_w1.weight" in value_dict.keys():
-                    # loop for FFN/MLP/other linear layers for 
-                    # print(value_dict.keys())
-                    if "lora_layer.lokr_w1.weight" in value_dict.keys():
-                        # this means we have not lora in weigth matrix W1
-                        out_l, in_m = value_dict['lora_layer.lokr_w1.weight'].shape
-                    else:
-                        # this means we have lora in the weight matrix W1
-                        out_l, rank = value_dict["lora_layer.lokr_w1_a.weight"].shape
-                        rank, in_m = value_dict['lora_layer.lokr_w1_b.weight'].shape
-                        # decompose_both = True
-                        # print(out_l, rank, rank, in_m)
-                        
-                    # extract the information about W2 matrix
-                    if 'lora_layer.lokr_w2.weight' in value_dict.keys():
-                        # this means we have not lora in weigth matrix W1
-                        out_k, in_n = value_dict['lora_layer.lokr_w2.weight'].shape
-                    else:
-                        # this means we have lora in the weight matrix W1
-                        out_k, rank = value_dict['lora_layer.lokr_w2_a.weight'].shape
-                        rank, in_n = value_dict['lora_layer.lokr_w2_b.weight'].shape
-                        # print(out_k, rank, rank, in_n)
-                        
-                        # get the input & output dimention
-                        in_features = in_m * in_n
-                        out_features = out_k * out_l
+                elif "lora_layer.loha_w1_a.weight" in value_dict.keys():
+                    # loop for FFN/MLP/other linear layers 
+                    out_features, lora_rank = value_dict["lora_layer.loha_w1_a.weight"].shape
+                    lora_rank, in_features = value_dict['lora_layer.loha_w1_b.weight'].shape
 
                     if isinstance(attn_processor, LoRACompatibleConv):
                         in_features = attn_processor.in_channels
@@ -493,14 +471,12 @@ class UNet2DConditionLoadersMixin:
                         )
                         # ToDo: need to add krona here as well in future.
                     elif isinstance(attn_processor, LoRACompatibleLinear):
-                            from .models.lora import LoKr
-                            lora = LoKr(
+                            from .models.lora import LoHA
+                            lora = LoHA(
                                 attn_processor.in_features,
                                 attn_processor.out_features,
                                 network_alpha=mapped_network_alphas.get(key),
-                                factor=factor, 
-                                lora_rank=rank, 
-                                decompose_both=decompose_both,
+                                lora_rank=lora_rank, 
                                 device=self.device,
                                 dtype=self.dtype,
                             )
@@ -524,34 +500,14 @@ class UNet2DConditionLoadersMixin:
                     projection_ids_list.append("to_v")
                     projection_ids_list.append("to_out")
 
-                    for projection_id in projection_ids_list:
+                    for projection_id in projection_ids_list:                        
                         # extract the information about W1 matrix
-                        if f"{projection_id}_lora.lokr_w1.weight" in value_dict.keys():
-                            # this means we have not lora in weigth matrix W1
-                            out_l, in_m = value_dict[f"{projection_id}_lora.lokr_w1.weight"].shape
-                        else:
-                            # this means we have lora in the weight matrix W1
-                            out_l, rank = value_dict[f"{projection_id}_lora.lokr_w1_a.weight"].shape
-                            rank, in_m = value_dict[f'{projection_id}_lora.lokr_w1_b.weight'].shape
-                        
-                        # extract the information about W2 matrix
-                        if f'{projection_id}_lora.lokr_w2.weight' in value_dict.keys():
-                            # this means we have not lora in weigth matrix W1
-                            out_k, in_n = value_dict[f'{projection_id}_lora.lokr_w2.weight'].shape
-                        else:
-                            # this means we have lora in the weight matrix W1
-                            out_k, rank = value_dict[f'{projection_id}_lora.lokr_w2_a.weight'].shape
-                            rank, in_n = value_dict[f'{projection_id}_lora.lokr_w2_b.weight'].shape
-                        
-                        # get the input & output dimention
-                        in_features = in_m * in_n
-                        out_features = out_k * out_l
+                        out_features, lora_rank = value_dict[f"{projection_id}_lora.loha_w1_a.weight"].shape
+                        lora_rank, in_features = value_dict[f'{projection_id}_lora.loha_w1_b.weight'].shape
 
                         # store the values
                         hidden_size_mapping_in.update({f"{projection_id}_lora.up.weight": in_features})
                         hidden_size_mapping_out.update({f"{projection_id}_lora.down.weight": out_features})
-                        
-                    lora_rank = rank
 
                     """ For cross attention dimention """
                     if isinstance(
@@ -559,27 +515,12 @@ class UNet2DConditionLoadersMixin:
                     ):
                         raise ValueError("Currently not supported.")
                     else:
-                        # Added lokr
+                        # Added loha
                         # extract the information about W1 matrix
-                        if "to_k_lora.lokr_w1.weight" in value_dict.keys():
-                            # this means we have not lora in weigth matrix W1
-                            out_l, in_m = value_dict[f"to_k_lora.lokr_w1.weight"].shape
-                        else:
-                            # this means we have lora in the weight matrix W1
-                            out_l, rank = value_dict["to_k_lora.lokr_w1_a.weight"].shape
-                            rank, in_m = value_dict['to_k_lora.lokr_w1_b.weight'].shape
-                            # decompose_both = True
-                        
-                        # extract the information about W2 matrix
-                        if 'to_k_lora.lokr_w2.weight' in value_dict.keys():
-                            # this means we have not lora in weigth matrix W1
-                            out_k, in_n = value_dict['to_k_lora.lokr_w2.weight'].shape
-                        else:
-                            # this means we have lora in the weight matrix W1
-                            out_k, rank = value_dict['to_k_lora.lokr_w2_a.weight'].shape
-                            rank, in_n = value_dict['to_k_lora.lokr_w2_b.weight'].shape
+                        out_features, lora_rank = value_dict["to_k_lora.loha_w1_a.weight"].shape
+                        lora_rank, in_features = value_dict['to_k_lora.loha_w1_b.weight'].shape
 
-                        cross_attention_dim = in_m * in_n
+                        cross_attention_dim = in_features
                         
                         if isinstance(attn_processor, (XFormersAttnProcessor, LoRAXFormersAttnProcessor)):
                             attn_processor_class = LoRAXFormersAttnProcessor
@@ -602,8 +543,6 @@ class UNet2DConditionLoadersMixin:
                             v_hidden_size=hidden_size_mapping_out.get("to_v_lora.down.weight"),
                             out_hidden_size=hidden_size_mapping_in.get("to_out_lora.up.weight"),
                             lora_rank=lora_rank, # Added
-                            factor=factor, # Added
-                            decompose_both=decompose_both, # Added
                         )
                     else:
                         attn_processors[key] = attn_processor_class(
@@ -1077,11 +1016,7 @@ class LoraLoaderMixin:
     text_encoder_name = TEXT_ENCODER_NAME
     unet_name = UNET_NAME
 
-    def load_lora_weights(self, pretrained_model_name_or_path_or_dict: Union[str, Dict[str, torch.Tensor]], 
-            factor=-1, # Added
-            decompose_both=True, # Added
-            **kwargs,
-        ):
+    def load_lora_weights(self, pretrained_model_name_or_path_or_dict: Union[str, Dict[str, torch.Tensor]], **kwargs):
         """
         Load LoRA weights specified in `pretrained_model_name_or_path_or_dict` into `self.unet` and
         `self.text_encoder`.
@@ -1107,13 +1042,9 @@ class LoraLoaderMixin:
         """
         state_dict, network_alphas = self.lora_state_dict(pretrained_model_name_or_path_or_dict, **kwargs)
         # print(state_dict, network_alphas); exit()
-        self.load_lora_into_unet(state_dict, network_alphas=network_alphas, 
-            unet=self.unet, 
-            factor=factor, # Added
-            decompose_both=decompose_both, # Added
-        )
-        print(factor)
-        shyammarjit
+        self.load_lora_into_unet(state_dict, network_alphas=network_alphas, unet=self.unet)
+        # print(factor)
+        # shyammarjit
         if train_text_encoder:
             self.load_lora_into_text_encoder(
                 state_dict,
@@ -1358,7 +1289,7 @@ class LoraLoaderMixin:
         return new_state_dict
 
     @classmethod
-    def load_lora_into_unet(cls, state_dict, network_alphas, unet, factor=-1, decompose_both=True):
+    def load_lora_into_unet(cls, state_dict, network_alphas, unet):
         """
         This will load the LoRA layers specified in `state_dict` into `unet`.
 
@@ -1401,7 +1332,7 @@ class LoraLoaderMixin:
             warnings.warn(warn_message)
 
         # load loras into unet
-        unet.load_attn_procs(state_dict, network_alphas=network_alphas, factor=factor, decompose_both=decompose_both)
+        unet.load_attn_procs(state_dict, network_alphas=network_alphas)
 
     @classmethod
     def load_lora_into_text_encoder(cls, state_dict, network_alphas, text_encoder, prefix=None, lora_scale=1.0, 

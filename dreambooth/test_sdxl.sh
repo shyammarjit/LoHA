@@ -29,9 +29,7 @@ accelerate launch train_dreambooth_lora_sdxl.py \
     --use_8bit_adam \
     --gradient_checkpointing \
     --enable_xformers_memory_efficient_attention \
-    --factor=$factor \
     --lora_rank=$lora_rank \
-    --decompose_both=$decompose_both \
     --unet_tune_mlp \
 
 python3 generator.py \
@@ -52,7 +50,5 @@ python3 generator.py \
     --use_8bit_adam \
     --gradient_checkpointing \
     --enable_xformers_memory_efficient_attention \
-    --factor=$factor \
     --lora_rank=$lora_rank \
-    --decompose_both=$decompose_both \
     --unet_tune_mlp \

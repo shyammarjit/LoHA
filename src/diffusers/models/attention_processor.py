@@ -19,7 +19,7 @@ from torch import nn
 
 from ..utils import deprecate, logging, maybe_allow_in_graph
 from ..utils.import_utils import is_xformers_available
-from .lora import LoRALinearLayer, LoKr
+from .lora import LoRALinearLayer, LoHA
 from .slice_lora import SliceLoRALinearLayer
 
 
@@ -1301,7 +1301,7 @@ class LoRAAttnProcessor2_0(nn.Module):
             Equivalent to `alpha` but it's usage is specific to Kohya (A1111) style LoRAs.
     """
 
-    def __init__(self, hidden_size, cross_attention_dim=None, network_alpha=None, factor=-1, lora_rank=4, decompose_both=True,  **kwargs):
+    def __init__(self, hidden_size, cross_attention_dim=None, network_alpha=None, lora_rank=4,  **kwargs):
         super().__init__()
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
@@ -1318,10 +1318,10 @@ class LoRAAttnProcessor2_0(nn.Module):
         out_hidden_size = kwargs.pop("out_hidden_size", None)
         out_hidden_size = out_hidden_size if out_hidden_size is not None else hidden_size            
 
-        self.to_q_lora = LoKr(q_hidden_size, q_hidden_size, network_alpha, factor=factor, lora_rank=lora_rank, decompose_both=decompose_both)
-        self.to_k_lora = LoKr(cross_attention_dim or hidden_size, hidden_size, network_alpha, factor=factor, lora_rank=lora_rank, decompose_both=decompose_both)
-        self.to_v_lora = LoKr(cross_attention_dim or v_hidden_size, v_hidden_size, network_alpha, factor=factor, lora_rank=lora_rank, decompose_both=decompose_both)
-        self.to_out_lora = LoKr(out_hidden_size, out_hidden_size, network_alpha, factor=factor, lora_rank=lora_rank, decompose_both=decompose_both)
+        self.to_q_lora = LoHA(q_hidden_size, q_hidden_size, network_alpha, lora_rank=lora_rank)
+        self.to_k_lora = LoHA(cross_attention_dim or hidden_size, hidden_size, network_alpha, lora_rank=lora_rank)
+        self.to_v_lora = LoHA(cross_attention_dim or v_hidden_size, v_hidden_size, network_alpha, lora_rank=lora_rank)
+        self.to_out_lora = LoHA(out_hidden_size, out_hidden_size, network_alpha, lora_rank=lora_rank)
     
     def __call__(self, attn: Attention, hidden_states, encoder_hidden_states=None, attention_mask=None, scale=1.0):
         residual = hidden_states

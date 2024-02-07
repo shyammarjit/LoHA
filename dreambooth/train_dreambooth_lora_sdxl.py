@@ -154,15 +154,11 @@ def struct_output(args):
     dataset_ = os.path.join(args.output_dir, dataset_name)
     if(os.path.exists(dataset_)): pass
     else: os.mkdir(dataset_)
-    
-    
 
     attn_config = "kqvo"
     if(args.unet_tune_mlp):
         attn_config = attn_config + "_ffn"
-    if(args.decompose_both):
-        attn_config = attn_config + "_DB"
-    exp = f"lokr_{attn_config}_{args.diffusion_model}_lr{args.learning_rate}_r{args.lora_rank}"
+    exp = f"loha_{attn_config}_{args.diffusion_model}_lr{args.learning_rate}_r{args.lora_rank}"
     
     exp_ = os.path.join(dataset_, exp)
     if(os.path.exists(exp_)): pass
@@ -469,24 +465,11 @@ def parse_args(input_args=None):
     )
 
     parser.add_argument(
-        "--factor",
-        type=int,
-        default=-1,
-        help="lora rank for decomposition of one matrices",
-    )
-
-    parser.add_argument(
         "--diffusion_model",
         type=str,
         default="sdxl",
         help="Define the type of diffusion model to be used",
         choices=["sdxl", "base"],
-    )
-    
-
-    parser.add_argument("--decompose_both",
-        default=True,
-        help="Whether low rank decomposition happens into both the metrices or not.",
     )
 
     parser.add_argument("--unet_tune_mlp",
@@ -889,9 +872,7 @@ def main(args):
         module = lora_attn_processor_class(
             hidden_size=hidden_size, 
             cross_attention_dim=cross_attention_dim, 
-            factor=args.factor, # added
             lora_rank=args.lora_rank, # added
-            decompose_both=args.decompose_both, # added
         )
         
         unet_lora_attn_procs[name] = module
@@ -900,7 +881,7 @@ def main(args):
         
     unet.set_attn_processor(unet_lora_attn_procs)
     if(args.unet_tune_mlp): 
-        ffn_info, unet_lora_extended_parameters = unet.set_ffn_processors(factor=args.factor, lora_rank=args.lora_rank, decompose_both=args.decompose_both)
+        ffn_info, unet_lora_extended_parameters = unet.set_ffn_processors(lora_rank=args.lora_rank)
         unet_lora_parameters.extend(unet_lora_extended_parameters)
 
     # The text encoder comes from 🤗 transformers, so we cannot directly modify it.
@@ -1553,7 +1534,7 @@ def main(args):
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config, **scheduler_args)
 
         # load attention processors (need to pass adapter Type as well)
-        pipeline.load_lora_weights(args.output_dir, factor=args.factor, decompose_both=args.decompose_both)
+        pipeline.load_lora_weights(args.output_dir)
 
         # run inference
         images = []

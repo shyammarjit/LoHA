@@ -18,141 +18,58 @@ import torch.nn.functional as F
 from torch import nn
 import torch, math
 
-def factorization(dimension: int, factor: int = -1) -> tuple[int, int]:
-    """
-    return a tuple of two value of input dimension decomposed by the number closest to factor
-    second value is higher or equal than first value.
+class HadaWeight(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, w1a, w1b, w2a, w2b, scale=torch.tensor(1)):
+        ctx.save_for_backward(w1a, w1b, w2a, w2b, scale)
+        diff_weight = ((w1a @ w1b) * (w2a @ w2b)) * scale
+        return diff_weight
 
-    In LoRA with Kroneckor Product, first value is a value for weight scale.
-    secon value is a value for weight.
+    @staticmethod
+    def backward(ctx, grad_out):
+        (w1a, w1b, w2a, w2b, scale) = ctx.saved_tensors
+        grad_out = grad_out * scale
+        temp = grad_out * (w2a @ w2b)
+        grad_w1a = temp @ w1b.T
+        grad_w1b = w1a.T @ temp
 
-    Becuase of non-commutative property, A⊗B ≠ B⊗A. Meaning of two matrices is slightly different.
+        temp = grad_out * (w1a @ w1b)
+        grad_w2a = temp @ w2b.T
+        grad_w2b = w2a.T @ temp
 
-    examples)
-    factor
-        -1               2                4               8               16               ...
-    127 -> 1, 127   127 -> 1, 127    127 -> 1, 127   127 -> 1, 127   127 -> 1, 127
-    128 -> 8, 16    128 -> 2, 64     128 -> 4, 32    128 -> 8, 16    128 -> 8, 16
-    250 -> 10, 25   250 -> 2, 125    250 -> 2, 125   250 -> 5, 50    250 -> 10, 25
-    360 -> 8, 45    360 -> 2, 180    360 -> 4, 90    360 -> 8, 45    360 -> 12, 30
-    512 -> 16, 32   512 -> 2, 256    512 -> 4, 128   512 -> 8, 64    512 -> 16, 32
-    1024 -> 32, 32  1024 -> 2, 512   1024 -> 4, 256  1024 -> 8, 128  1024 -> 16, 64
+        del temp
+        return grad_w1a, grad_w1b, grad_w2a, grad_w2b, None
 
+
+class LoHA(nn.Module):
     # Note: This code is taken from https://github.com/KohakuBlueleaf/LyCORIS/blob/main/lycoris/modules/lokr.py
-    """
-
-    if factor > 0 and (dimension % factor) == 0:
-        m = factor
-        n = dimension // factor
-        if m > n:
-            n, m = m, n
-        return m, n
-    if factor < 0:
-        factor = dimension
-    m, n = 1, dimension
-    length = m + n
-    while m < n:
-        new_m = m + 1
-        while dimension % new_m != 0:
-            new_m += 1
-        new_n = dimension // new_m
-        if new_m + new_n > length or new_m > factor:
-            break
-        else:
-            m, n = new_m, new_n
-    if m > n:
-        n, m = m, n
-    return m, n
-
-# def kronecker(A, B):
-#     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
-
-def make_kron(w1, w2):
-    # print(w1.shape, w2.shape)
-    # This function performs kronecker decomposition
-    # Note: This code is taken from https://github.com/KohakuBlueleaf/LyCORIS/blob/main/lycoris/modules/lokr.py
-    if len(w2.shape) == 4:
-        w1 = w1.unsqueeze(2).unsqueeze(2)
-    w2 = w2.contiguous()
-    rebuild = torch.kron(w1, w2)
-
-    return rebuild
-
-class LoKr(nn.Module):
-    # Note: This code is taken from https://github.com/KohakuBlueleaf/LyCORIS/blob/main/lycoris/modules/lokr.py
-    def __init__(self, in_features, out_features, network_alpha=None, factor=-1, lora_rank=4, decompose_both=True, 
-        device=None, 
-        dtype=None,
-        use_scalar=False,      
-    ):
-        # print(factor)
-        """
-        decompose_both: If you want low rank decomposition (LoRA) for upper and lower matrices.
-        out_dim = out_l * in_m
-        in_dim = out_k * in_n
-        """
+    def __init__(self, in_features, out_features, network_alpha=None, lora_rank=4, device=None, dtype=None, use_scalar=False):
         super().__init__()
-        self.use_w1 = False
-        self.use_w2 = False
-        self.in_features = in_features
-        self.out_features = out_features
 
-        # get the Kronecker factors for upper and lower matrix
-        in_m, in_n = factorization(in_features, factor) 
-        out_l, out_k = factorization(out_features, factor)
-        self.a1, self.b1 = out_l, out_k
-        self.a2, self.b2 = in_m, in_n
+        # W1
+        self.loha_w1_a = nn.Linear(lora_rank, out_features, bias=False, device=device, dtype=dtype)
+        self.loha_w1_b = nn.Linear(in_features, lora_rank, bias=False, device=device, dtype=dtype)
         
-        
-        # W1: smaller part
-        if decompose_both and lora_rank < max(out_l, in_m) / 2:
-            self.lokr_w1_a = nn.Linear(lora_rank, out_l, bias=False, device=device, dtype=dtype)
-            self.lokr_w1_b = nn.Linear(in_m, lora_rank, bias=False, device=device, dtype=dtype)
-        else:
-            self.use_w1 = True
-            self.lokr_w1 = nn.Linear(in_m, out_l, bias=False, device=device, dtype=dtype)  # a*c, 1-mode
-        
-        # W2: bigger part, weight and LoRA. [b, dim] x [dim, d]
-        if lora_rank < max(out_k, in_n) / 2:
-            self.lokr_w2_a = nn.Linear(lora_rank, out_k, bias=False, device=device, dtype=dtype)
-            self.lokr_w2_b = nn.Linear(in_n, lora_rank, bias=False, device=device, dtype=dtype)
-            # w1 ⊗ (w2_a x w2_b) = (a, b)⊗((c, dim)x(dim, d)) = (a, b)⊗(c, d) = (ac, bd)
-        else:
-            self.use_w2 = True
-            self.lokr_w2 = nn.Linear(in_n, out_k, bias=False, device=device, dtype=dtype)
+        # W2
+        self.loha_w2_a = nn.Linear(lora_rank, out_features, bias=False, device=device, dtype=dtype)
+        self.loha_w2_b = nn.Linear(in_features, lora_rank, bias=False, device=device, dtype=dtype)
 
-        if self.use_w2:
-            if use_scalar:
-                nn.init.kaiming_uniform_(self.lokr_w2.weight, a=math.sqrt(5))
-            else:
-                nn.init.constant_(self.lokr_w2.weight, 0)
-        else:
-            nn.init.kaiming_uniform_(self.lokr_w2_a.weight, a=math.sqrt(5))
-            if use_scalar: # basically to update the value of `b` in kaiming_uniform_
-                nn.init.kaiming_uniform_(self.lokr_w2_b.weight, a=math.sqrt(5))
-            else:
-                nn.init.constant_(self.lokr_w2_b.weight, 0)
-
-        if self.use_w1:
-            nn.init.kaiming_uniform_(self.lokr_w1.weight, a=math.sqrt(5))
-        else:
-            nn.init.kaiming_uniform_(self.lokr_w1_a.weight, a=math.sqrt(5))
-            nn.init.kaiming_uniform_(self.lokr_w1_b.weight, a=math.sqrt(5))
+        # Initialize the weights
+        torch.nn.init.normal_(self.loha_w1_b.weight, std=1)
+        torch.nn.init.normal_(self.loha_w1_a.weight, std=0.1)
+        torch.nn.init.normal_(self.loha_w2_b.weight, std=1)
+        torch.nn.init.constant_(self.loha_w2_a.weight, 0)
         
     def forward(self, hidden_states):
-        # get the down matrix
-        down = self.lokr_w1.weight if self.use_w1 else self.lokr_w1_a.weight @ self.lokr_w1_b.weight
-        # get the up matrix
-        up = self.lokr_w2.weight if self.use_w2 else self.lokr_w2_a.weight @ self.lokr_w2_b.weight
-        weight = make_kron(down, up)
-        out = hidden_states @ weight.T
+        # get the new trainable matrix
+        new_weight = HadaWeight.apply(self.loha_w1_a.weight, self.loha_w1_b.weight, self.loha_w2_a.weight, self.loha_w2_b.weight)
+        # print(new_weight.shape)
+        out = hidden_states @ new_weight.T
         return out
 
 class LoRALinearLayer(nn.Module):
     def __init__(self, in_features, out_features, rank=4, network_alpha=None, device=None, dtype=None, lphm=None):
         super().__init__()
-        # print(kamal)
-        # exit()
         self.lphm = lphm
         # This value has the same meaning as the `--network_alpha` option in the kohya-ss trainer script.
         # See https://github.com/darkstorm2150/sd-scripts/blob/main/docs/train_network_README-en.md#execute-learning
