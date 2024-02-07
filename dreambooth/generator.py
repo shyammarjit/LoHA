@@ -130,13 +130,6 @@ def generator(args, prompts, from_checkpoint):
             image = pipe(prompts[i], num_inference_steps=50, guidance_scale=7).images[0]
         
         image_save_path = os.path.join(image_dir, f"image_{i+1}_{args.seed}.jpg")
-        # wandb.log({'Final Images': wandb.Image(image)})
-        # # wandb.log({'subject': wandb.weights(args.learning_rate_text)})
-        # wandb.log({'rank(r)': wandb.weights(args.lora_rank)})
-        # wandb.log({'learning rate': wandb.weights(args.learning_rate)})
-        # wandb.log({'learning rate text': wandb.weights(args.learning_rate_text)})
-        # wandb.log({'alpha text': wandb.weights(args.alpha_text)})
-        # wandb.log({'alpha unet': wandb.weights(args.alpha_unet)})
         image.save(image_save_path)
     print(f"Image generation completed.")
     if args.diffusion_model == "sdxl":
@@ -194,41 +187,6 @@ def save_metrics(args, clipi, clipt, from_checkpoint):
     df = pd.read_csv(filename)
     df = pd.concat([df, pd.DataFrame(exp_info, index=[0])], ignore_index=True)
     df.to_csv('data.csv', index=False)
-
-    # delete the upload files on gdrive
-    if(args.delete_and_upload_drive):
-        from googleapiclient.http import MediaFileUpload
-        from Google import Create_Service
-
-        archived = shutil.make_archive(os.path.basename(args.output_dir), 'zip', args.output_dir)
-
-        CLIENT_SECRET_FILE = 'Client_secret.json'
-        API_NAME ='drive'
-        API_VERSION = 'v3'
-        SCOPES = ['https://www.googleapis.com/auth/drive']
-
-        service = Create_Service(CLIENT_SECRET_FILE, API_NAME, API_VERSION, SCOPES)
-
-        # folder_id = '1IqHpR033dnKtgCTrtptj047-LNeKkmxd'
-        folder_id = "1Tt4dhZ8VYF1HMFsQm6ouefIvZrJ6Qk8d"
-        file_name = os.path.basename(archived)
-
-        file_metadata = {
-            'name': file_name,
-            'parents': [folder_id]
-        }
-
-        media = MediaFileUpload(archived, mimetype='application/octet-stream')
-
-        service.files().create(
-            body = file_metadata,
-            media_body = media,
-            fields = 'id'
-        ).execute()
-        print("zip folder uploaded on GDrive and deleted from local.")
-
-
-
 
 
 if __name__ == "__main__":
